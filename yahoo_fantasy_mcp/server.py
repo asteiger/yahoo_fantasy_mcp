@@ -18,6 +18,7 @@ from mcp.types import (
     Tool,
 )
 
+from . import __version__
 from .tools import YahooFantasyTools
 
 logger = logging.getLogger(__name__)
@@ -539,6 +540,7 @@ def create_server(
 
     return Server(
         "yahoo-fantasy",
+        version=__version__,
         on_list_resources=list_resources,
         on_list_tools=list_tools,
         on_call_tool=call_tool,
