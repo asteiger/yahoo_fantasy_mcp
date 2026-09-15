@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "yahoo_fantasy_api>=2.12.2",
+    "yahoo-fantasy-api>=2.12.3",
     "mcp>=2.2.0,<3",
 ]
 
