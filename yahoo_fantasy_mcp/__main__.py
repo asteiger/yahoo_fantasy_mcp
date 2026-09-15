@@ -2,10 +2,14 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
+from getpass import getpass
 from pathlib import Path
+
+from yahoo_oauth import OAuth2
 
 from .server import create_server
 from .stdio_transport import graceful_stdio_server
@@ -68,7 +72,8 @@ async def run_server(
 def list_available_leagues(
     client_id: str = None,
     client_secret: str = None,
-    oauth2_file: str = None
+    oauth2_file: str = None,
+    title: str = "YAHOO_LEAGUE_ID not set - Listing available leagues"
 ):
     """List all leagues the user is part of to help with setup.
 
@@ -76,9 +81,10 @@ def list_available_leagues(
         client_id: Yahoo API client ID (for env var auth)
         client_secret: Yahoo API client secret (for env var auth)
         oauth2_file: Path to oauth2.json file (alternative auth method)
+        title: Banner printed above the league list
     """
     print("\n" + "="*60, file=sys.stderr)
-    print("YAHOO_LEAGUE_ID not set - Listing available leagues", file=sys.stderr)
+    print(title, file=sys.stderr)
     print("="*60 + "\n", file=sys.stderr)
 
     try:
@@ -121,9 +127,95 @@ def list_available_leagues(
         print("Please check your credentials and try again.\n", file=sys.stderr)
 
 
+def _consumer_credentials(oauth2_file: Path) -> tuple[str, str]:
+    """Find the Yahoo app credentials in the environment, an existing file, or by prompting."""
+    client_id = os.getenv("YAHOO_CLIENT_ID")
+    client_secret = os.getenv("YAHOO_CLIENT_SECRET")
+    if client_id and client_secret:
+        return client_id, client_secret
+
+    # Re-authorizing reuses the app credentials already saved in the file.
+    if oauth2_file.exists():
+        try:
+            data = json.loads(oauth2_file.read_text())
+        except (OSError, ValueError):
+            data = {}
+        if data.get("consumer_key") and data.get("consumer_secret"):
+            return data["consumer_key"], data["consumer_secret"]
+
+    print("Enter your Yahoo app credentials (from https://developer.yahoo.com/apps/).")
+    client_id = input("Client ID (consumer key): ").strip()
+    client_secret = getpass("Client secret (consumer secret): ").strip()
+    return client_id, client_secret
+
+
+def run_auth(oauth2_file: Path) -> int:
+    """Authorize with Yahoo interactively and save the tokens to oauth2_file.
+
+    Returns:
+        Process exit code.
+    """
+    # yahoo_oauth logs the authorization URL and tokens at DEBUG.
+    logging.getLogger("yahoo_oauth").setLevel(logging.WARNING)
+
+    client_id, client_secret = _consumer_credentials(oauth2_file)
+    if not client_id or not client_secret:
+        print("Error: a client ID and client secret are required.", file=sys.stderr)
+        return 1
+
+    print(
+        "\nOpen the authorization URL below, sign in to Yahoo, approve access, "
+        "and paste the code Yahoo shows you.\n"
+    )
+    try:
+        # Tokens are written below, only once the flow succeeds, so a failed
+        # attempt never clobbers a working oauth2.json.
+        oauth = OAuth2(client_id, client_secret, browser_callback=False, store_file=False)
+    except KeyError:
+        # yahoo_oauth indexes the token response directly, so a rejected
+        # request surfaces as a missing 'access_token' key.
+        print(
+            "\nError: Yahoo rejected the authorization. Check the client ID, "
+            "client secret, and code, then try again.",
+            file=sys.stderr
+        )
+        return 1
+    except Exception as e:
+        print(f"\nError: authorization failed: {e}", file=sys.stderr)
+        return 1
+
+    credentials = {
+        "consumer_key": client_id,
+        "consumer_secret": client_secret,
+        "access_token": oauth.access_token,
+        "refresh_token": oauth.refresh_token,
+        "token_type": oauth.token_type,
+        "token_time": oauth.token_time,
+    }
+    try:
+        oauth2_file.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(oauth2_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(credentials, f, indent=4, sort_keys=True)
+    except OSError as e:
+        print(f"Error: could not write {oauth2_file}: {e}", file=sys.stderr)
+        return 1
+
+    print(f"\nSaved credentials to {oauth2_file}")
+    list_available_leagues(oauth2_file=str(oauth2_file), title="Authorized - Listing available leagues")
+    return 0
+
+
 def main():
     """Run the MCP server."""
     parser = argparse.ArgumentParser(description="Yahoo Fantasy MCP Server")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["serve", "auth"],
+        default="serve",
+        help="'serve' runs the MCP server (default); 'auth' authorizes with Yahoo and writes the oauth2 file"
+    )
     parser.add_argument(
         "--oauth2-file",
         type=str,
@@ -134,6 +226,9 @@ def main():
 
     # Check if oauth2.json file exists.
     oauth2_file = Path(args.oauth2_file)
+
+    if args.command == "auth":
+        sys.exit(run_auth(oauth2_file))
 
     # Determine authentication method.
     if oauth2_file.exists():
@@ -151,7 +246,7 @@ def main():
                 file=sys.stderr
             )
             print("\nPlease either:", file=sys.stderr)
-            print(f"  1. Create {oauth2_file} with Yahoo OAuth credentials", file=sys.stderr)
+            print(f"  1. Run 'yahoo-fantasy-mcp auth' to create {oauth2_file}", file=sys.stderr)
             print("  2. Set YAHOO_CLIENT_ID and YAHOO_CLIENT_SECRET environment variables", file=sys.stderr)
             sys.exit(1)
 

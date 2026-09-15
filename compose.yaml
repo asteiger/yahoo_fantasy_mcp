@@ -1,0 +1,10 @@
+services:
+  yahoo-fantasy-mcp:
+    build: .
+    image: yahoo-fantasy-mcp
+    # Directory holding oauth2.json. Refreshed tokens are written back to it.
+    volumes:
+      - ${YAHOO_FANTASY_MCP_DATA:-./data}:/data
+    # Forwarded from the calling environment (or a .env file next to this one).
+    environment:
+      - YAHOO_LEAGUE_ID

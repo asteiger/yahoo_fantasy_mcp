@@ -130,6 +130,7 @@ dmypy.json
 # Yahoo OAuth credentials
 oauth2.json
 token.json
+/data/
 .mcp.json
 opencode.json
 .DS_Store

@@ -44,14 +44,14 @@ There are two ways to authenticate with Yahoo's API:
 
 ### Option 1: Using oauth2.json (Recommended)
 
-Create an `oauth2.json` file with your Yahoo OAuth credentials. You can generate this file using the [yahoo_fantasy_api](https://github.com/spilchen/yahoo_fantasy_api) authentication flow:
+Run the `auth` command once to create `oauth2.json`:
 
-```python
-from yahoo_oauth import OAuth2
-
-# This will prompt you to authorize via browser
-sc = OAuth2(None, None, from_file='oauth2.json')
+```bash
+yahoo-fantasy-mcp auth
+# or, from a source checkout: uv run yahoo-fantasy-mcp auth
 ```
+
+It asks for your app's client ID and secret (or reads `YAHOO_CLIENT_ID`/`YAHOO_CLIENT_SECRET` if set), prints an authorization URL to open in your browser, and saves the tokens to `oauth2.json` in the current directory after you paste back the code Yahoo shows. It then lists your leagues. Use `--oauth2-file <path>` to save elsewhere. Run it again at any time to re-authorize.
 
 The `oauth2.json` file will look like:
 
@@ -251,6 +251,51 @@ YAHOO_CLIENT_ID=your_key YAHOO_CLIENT_SECRET=your_secret python -m yahoo_fantasy
 
 Note: When run standalone without an MCP client, the server will wait for JSON-RPC messages on stdin. This is primarily useful for testing that the server starts correctly and authentication works.
 
+### Running in Docker
+
+`compose.yaml` builds the image and mounts a credentials directory at `/data`; the server reads `/data/oauth2.json` and writes refreshed tokens back to it. The directory defaults to `./data` next to `compose.yaml` (git-ignored); set `YAHOO_FANTASY_MCP_DATA` to use another path.
+
+The server speaks stdio, so it runs as a one-off container via `docker compose run` rather than `docker compose up`.
+
+#### Build the image
+
+```bash
+docker compose build
+```
+
+#### Authorize (one time)
+
+```bash
+docker compose run --rm yahoo-fantasy-mcp auth
+```
+
+This prompts for your Yahoo app's client ID and secret, prints an authorization URL to open in your browser, and saves the tokens to `data/oauth2.json` once you paste back the code Yahoo shows. It then lists your leagues so you can pick a `YAHOO_LEAGUE_ID`. Run it again any time to re-authorize; it reuses the saved client ID and secret.
+
+On Linux, the container runs as UID 1000. If your host user has a different UID, add `--user "$(id -u):$(id -g)"` after `run` so the container can write to the data directory.
+
+Set `YAHOO_LEAGUE_ID` in a `.env` file next to `compose.yaml` (`YAHOO_LEAGUE_ID=423.l.123456`) or pass it from the MCP client as below.
+
+#### MCP client configuration
+
+```json
+{
+  "mcpServers": {
+    "yahoo-fantasy": {
+      "command": "docker",
+      "args": [
+        "compose", "-f", "/path/to/yahoo_fantasy_mcp/compose.yaml",
+        "run", "--rm", "-T", "yahoo-fantasy-mcp"
+      ],
+      "env": {
+        "YAHOO_LEAGUE_ID": "423.l.123456"
+      }
+    }
+  }
+}
+```
+
+`-T` disables the pseudo-TTY, which would corrupt the JSON-RPC stream; stdin stays attached. Use an absolute path to `compose.yaml`, since MCP clients don't expand `~`. Relative paths inside `compose.yaml` resolve against its own directory, so this works from any working directory.
+
 ## Available Tools
 
 The MCP server exposes the following tools for reading Yahoo Fantasy data and managing your team:
@@ -355,6 +400,8 @@ yahoo_fantasy_mcp/
 │       ├── __init__.py
 │       ├── test_tools_integration.py
 │       └── test_get_team_roster.py
+├── Dockerfile             # Container image (stdio transport)
+├── compose.yaml           # Docker Compose service and credentials mount
 ├── README.md
 ├── pyproject.toml         # Project metadata, dependencies, tool config
 ├── uv.lock                # Locked dependency versions
