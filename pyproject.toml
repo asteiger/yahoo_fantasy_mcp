@@ -1,0 +1,58 @@
+[project]
+name = "yahoo_fantasy_mcp"
+dynamic = ["version"]
+description = "MCP server for Yahoo Fantasy Sports API"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Matt Spilchen", email = "matt.spilchen@gmail.com" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "yahoo_fantasy_api>=2.12.2",
+    "mcp>=0.1.0,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/spilchen/yahoo_fantasy_mcp"
+
+[project.scripts]
+yahoo-fantasy-mcp = "yahoo_fantasy_mcp.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "isort>=5.12.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "yahoo_fantasy_mcp/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["yahoo_fantasy_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = ["-v", "--ignore=tests/integration"]

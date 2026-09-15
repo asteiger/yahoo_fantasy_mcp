@@ -15,10 +15,10 @@ To run integration tests:
 
 ```bash
 # Run all integration tests
-pytest tests/integration/ -v
+uv run pytest tests/integration/ -v
 
 # Run a specific integration test
-pytest tests/integration/test_tools_integration.py::TestYahooFantasyToolsIntegration::test_get_league_standings -v
+uv run pytest tests/integration/test_tools_integration.py::TestYahooFantasyToolsIntegration::test_get_league_standings -v
 ```
 
 ## Notes

@@ -15,15 +15,18 @@ A Model Context Protocol (MCP) server that provides access to Yahoo Fantasy Spor
 ### From PyPI (when published)
 
 ```bash
-pip install yahoo-fantasy-mcp
+uv tool install yahoo-fantasy-mcp
+# or: pip install yahoo-fantasy-mcp
 ```
 
 ### From Source
 
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
 ```bash
 git clone https://github.com/yourusername/yahoo_fantasy_mcp.git
 cd yahoo_fantasy_mcp
-pip install -e .
+uv sync
 ```
 
 ## Prerequisites
@@ -184,6 +187,22 @@ Or specify a custom path to the oauth2.json file:
 }
 ```
 
+##### From a source checkout with uv
+
+```json
+{
+  "mcpServers": {
+    "yahoo-fantasy": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/yahoo_fantasy_mcp", "yahoo-fantasy-mcp", "--oauth2-file", "/path/to/oauth2.json"],
+      "env": {
+        "YAHOO_LEAGUE_ID": "423.l.123456"
+      }
+    }
+  }
+}
+```
+
 ##### With environment variables
 
 If you don't have an oauth2.json file, you can provide credentials via environment variables:
@@ -276,27 +295,35 @@ The MCP server exposes the following tools for read-only access to Yahoo Fantasy
 git clone https://github.com/yourusername/yahoo_fantasy_mcp.git
 cd yahoo_fantasy_mcp
 
-# Install development dependencies
-pip install -e ".[dev]"
+# Create .venv and install the package plus the dev dependency group
+uv sync
 ```
+
+Add or update dependencies with `uv add <package>` (or `uv add --dev <package>` for dev tools); this updates `pyproject.toml` and `uv.lock`.
 
 ### Running Tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ### Code Quality
 
 ```bash
 # Run linter
-flake8 yahoo_fantasy_mcp tests
+uv run flake8 yahoo_fantasy_mcp tests
 
 # Run type checker
-mypy yahoo_fantasy_mcp
+uv run mypy yahoo_fantasy_mcp
 
 # Format code
-black yahoo_fantasy_mcp tests
+uv run black yahoo_fantasy_mcp tests
+```
+
+### Building
+
+```bash
+uv build
 ```
 
 ## Project Structure
@@ -315,9 +342,8 @@ yahoo_fantasy_mcp/
 │       ├── test_tools_integration.py
 │       └── test_get_team_roster.py
 ├── README.md
-├── setup.py
-├── requirements.txt
-├── requirements-dev.txt
+├── pyproject.toml         # Project metadata, dependencies, tool config
+├── uv.lock                # Locked dependency versions
 └── .gitignore
 ```
 

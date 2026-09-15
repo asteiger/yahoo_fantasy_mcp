@@ -3,7 +3,7 @@
 A Model Context Protocol server for Yahoo Fantasy Sports data.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .server import create_server
 
