@@ -132,3 +132,4 @@ oauth2.json
 token.json
 .mcp.json
 opencode.json
+.DS_Store
