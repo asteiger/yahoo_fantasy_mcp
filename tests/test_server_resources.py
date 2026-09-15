@@ -11,7 +11,7 @@ def test_league_resource_includes_configured_id():
     assert str(resource.uri) == server._LEAGUE_RESOURCE_URI
     assert resource.name == "yahoo-league-id"
     assert "466.l.223398" in resource.description
-    assert resource.mimeType == "application/json"
+    assert resource.mime_type == "application/json"
     assert resource.meta == {"league_id": "466.l.223398"}
     assert resource.size == len("466.l.223398")
 

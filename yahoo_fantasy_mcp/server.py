@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Optional
 
-from mcp.server import Server
-from mcp.types import Resource, Tool, TextContent
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListResourcesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    Resource,
+    TextContent,
+    Tool,
+)
 
 from .tools import YahooFantasyTools
 
@@ -61,22 +70,23 @@ def create_server(
     Returns:
         Configured MCP Server instance
     """
-    server = Server("yahoo-fantasy")
     tools = YahooFantasyTools(
         client_id=client_id,
         client_secret=client_secret,
         oauth2_file=oauth2_file
     )
 
-    @server.list_resources()
-    async def list_resources() -> list[Resource]:
+    async def list_resources(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
         """List resources exposed by the MCP server."""
-        return _list_league_resources()
+        return ListResourcesResult(resources=_list_league_resources())
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
+    async def list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
         """List available tools."""
-        return [
+        return ListToolsResult(tools=[
             Tool(
                 name="get_team_key",
                 description="Get the team key for the logged in user's team in a league",
@@ -412,19 +422,22 @@ def create_server(
                     "required": ["league_id"]
                 }
             ),
-        ]
+        ])
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+    async def call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult:
         """Handle tool calls.
 
         Args:
-            name: Name of the tool to call
-            arguments: Tool arguments
+            ctx: Request context
+            params: Tool call parameters (tool name and arguments)
 
         Returns:
-            List of text content results
+            Tool result with text content
         """
+        name = params.name
+        arguments = params.arguments or {}
         try:
             if name == "get_team_key":
                 result = await tools.get_team_key(arguments["league_id"])
@@ -518,10 +531,15 @@ def create_server(
             else:
                 raise ValueError(f"Unknown tool: {name}")
 
-            return [TextContent(type="text", text=str(result))]
+            return CallToolResult(content=[TextContent(type="text", text=str(result))])
 
         except Exception as e:
             logger.error(f"Error calling tool {name}: {e}")
-            return [TextContent(type="text", text=f"Error: {str(e)}")]
+            return CallToolResult(content=[TextContent(type="text", text=f"Error: {str(e)}")])
 
-    return server
+    return Server(
+        "yahoo-fantasy",
+        on_list_resources=list_resources,
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+    )
