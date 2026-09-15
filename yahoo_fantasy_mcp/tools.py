@@ -2,13 +2,24 @@
 
 import json
 import datetime
-from typing import Optional, Dict, Any, Union, List
+from typing import Callable, Optional, Dict, Any, Union, List
 import logging
 
 from yahoo_oauth import OAuth2
 import yahoo_fantasy_api as yfa
 
 logger = logging.getLogger(__name__)
+
+
+def _error_message(e: Exception) -> str:
+    """Return a readable message for an exception.
+
+    yahoo_fantasy_api raises RuntimeError(response.content) on failed writes, so
+    the argument is often the raw bytes of Yahoo's XML error document.
+    """
+    if e.args and isinstance(e.args[0], bytes):
+        return e.args[0].decode("utf-8", errors="replace")
+    return str(e)
 
 
 class YahooFantasyTools:
@@ -851,4 +862,275 @@ class YahooFantasyTools:
                 "waivers": [],
                 "error": str(e)
             }
+
+    # Write operations. These modify the team on Yahoo! and cannot be undone
+    # through the API. Each returns the request details plus a success flag,
+    # and an error message when the operation fails.
+
+    def _perform_write(
+        self, description: str, result: Dict[str, Any], operation: Callable[[], None]
+    ) -> Dict[str, Any]:
+        """Run a write operation, recording success or failure in result.
+
+        Args:
+            description: Human readable description of the operation, for logging
+            result: Request details to return to the caller
+            operation: Callable that performs the write
+
+        Returns:
+            The result dictionary with success (and error, on failure) added.
+        """
+        logger.info(description)
+        try:
+            operation()
+            result["success"] = True
+        except Exception as e:
+            message = _error_message(e)
+            logger.error(f"Error {description[0].lower()}{description[1:]}: {message}")
+            result["success"] = False
+            result["error"] = message
+        return result
+
+    async def change_positions(
+        self,
+        team_key: str,
+        players: List[Dict[str, Any]],
+        date: Optional[str] = None,
+        week: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Change the lineup positions of a subset of players on a team.
+
+        Args:
+            team_key: The team key to modify
+            players: Players to move. Each entry has player_id and
+                    selected_position (e.g., 'BN', 'QB', 'C', 'IL').
+            date: Day the new positions take effect (YYYY-MM-DD). Use for
+                 daily leagues (MLB, NBA, NHL).
+            week: Week the new positions take effect. Use for weekly leagues (NFL).
+                 Exactly one of date or week must be given.
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result: Dict[str, Any] = {
+            "team_key": team_key,
+            "players": players,
+            "date": date,
+            "week": week
+        }
+
+        def operation() -> None:
+            if (date is None) == (week is None):
+                raise ValueError("Specify exactly one of date (YYYY-MM-DD) or week")
+            time_frame: Union[datetime.date, int]
+            if date is not None:
+                time_frame = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+            else:
+                time_frame = int(week)
+            yfa.Team(self._oauth, team_key).change_positions(time_frame, players)
+
+        return self._perform_write(
+            f"Changing positions for team {team_key}: {players}", result, operation
+        )
+
+    async def add_player(self, team_key: str, player_id: int) -> Dict[str, Any]:
+        """Add a free agent to a team.
+
+        Args:
+            team_key: The team key to add the player to
+            player_id: Yahoo! player ID of the player to add
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {"team_key": team_key, "player_id": player_id}
+        return self._perform_write(
+            f"Adding player {player_id} to team {team_key}",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).add_player(player_id)
+        )
+
+    async def drop_player(self, team_key: str, player_id: int) -> Dict[str, Any]:
+        """Drop a player from a team.
+
+        Args:
+            team_key: The team key to drop the player from
+            player_id: Yahoo! player ID of the player to drop
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {"team_key": team_key, "player_id": player_id}
+        return self._perform_write(
+            f"Dropping player {player_id} from team {team_key}",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).drop_player(player_id)
+        )
+
+    async def add_and_drop_players(
+        self, team_key: str, add_player_id: int, drop_player_id: int
+    ) -> Dict[str, Any]:
+        """Add a free agent and drop a player in a single transaction.
+
+        Args:
+            team_key: The team key to modify
+            add_player_id: Yahoo! player ID of the player to add
+            drop_player_id: Yahoo! player ID of the player to drop
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {
+            "team_key": team_key,
+            "add_player_id": add_player_id,
+            "drop_player_id": drop_player_id
+        }
+        return self._perform_write(
+            f"Adding player {add_player_id} and dropping player {drop_player_id} "
+            f"for team {team_key}",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).add_and_drop_players(
+                add_player_id, drop_player_id
+            )
+        )
+
+    async def claim_player(
+        self, team_key: str, player_id: int, faab: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Submit a waiver claim for a player.
+
+        Args:
+            team_key: The team key making the claim
+            player_id: Yahoo! player ID of the player to claim
+            faab: FAAB dollars to bid (optional, only for FAAB leagues)
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {"team_key": team_key, "player_id": player_id, "faab": faab}
+        return self._perform_write(
+            f"Claiming player {player_id} for team {team_key} (faab: {faab})",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).claim_player(player_id, faab=faab)
+        )
+
+    async def claim_and_drop_players(
+        self,
+        team_key: str,
+        add_player_id: int,
+        drop_player_id: int,
+        faab: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Submit a waiver claim for a player, dropping another if it succeeds.
+
+        Args:
+            team_key: The team key making the claim
+            add_player_id: Yahoo! player ID of the player to claim
+            drop_player_id: Yahoo! player ID of the player to drop
+            faab: FAAB dollars to bid (optional, only for FAAB leagues)
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {
+            "team_key": team_key,
+            "add_player_id": add_player_id,
+            "drop_player_id": drop_player_id,
+            "faab": faab
+        }
+        return self._perform_write(
+            f"Claiming player {add_player_id} and dropping player {drop_player_id} "
+            f"for team {team_key} (faab: {faab})",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).claim_and_drop_players(
+                add_player_id, drop_player_id, faab=faab
+            )
+        )
+
+    async def propose_trade(
+        self,
+        team_key: str,
+        tradee_team_key: str,
+        your_player_ids: List[int],
+        their_player_ids: List[int],
+        trade_note: str = ""
+    ) -> Dict[str, Any]:
+        """Propose a trade to another team.
+
+        Args:
+            team_key: The team key proposing the trade
+            tradee_team_key: The team key of the team receiving the proposal
+            your_player_ids: Yahoo! player IDs this team is sending
+            their_player_ids: Yahoo! player IDs requested from the other team
+            trade_note: Optional note to include with the proposal
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {
+            "team_key": team_key,
+            "tradee_team_key": tradee_team_key,
+            "your_player_ids": your_player_ids,
+            "their_player_ids": their_player_ids,
+            "trade_note": trade_note
+        }
+
+        def operation() -> None:
+            team = yfa.Team(self._oauth, team_key)
+            # Team.propose_trade() in yahoo_fantasy_api 2.12.3 passes its
+            # arguments to _construct_trade_proposal_xml() in the wrong order,
+            # so build and post the proposal ourselves.
+            your_keys = [f"{team.league_prefix}.p.{int(p)}" for p in your_player_ids]
+            their_keys = [f"{team.league_prefix}.p.{int(p)}" for p in their_player_ids]
+            xml = team._construct_trade_proposal_xml(
+                tradee_team_key, your_keys, their_keys, trade_note
+            )
+            team.yhandler.post_transactions(team.league_id, xml)
+
+        return self._perform_write(
+            f"Proposing trade from team {team_key} to {tradee_team_key}: "
+            f"sending {your_player_ids}, receiving {their_player_ids}",
+            result,
+            operation
+        )
+
+    async def accept_trade(
+        self, team_key: str, transaction_key: str, trade_note: str = ""
+    ) -> Dict[str, Any]:
+        """Accept a trade that was proposed to a team.
+
+        Args:
+            team_key: The team key accepting the trade
+            transaction_key: Key of the proposed trade (from get_team_proposed_trades)
+            trade_note: Optional note to include
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {"team_key": team_key, "transaction_key": transaction_key}
+        return self._perform_write(
+            f"Accepting trade {transaction_key} for team {team_key}",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).accept_trade(transaction_key, trade_note)
+        )
+
+    async def reject_trade(
+        self, team_key: str, transaction_key: str, trade_note: str = ""
+    ) -> Dict[str, Any]:
+        """Reject a trade that was proposed to a team.
+
+        Args:
+            team_key: The team key rejecting the trade
+            transaction_key: Key of the proposed trade (from get_team_proposed_trades)
+            trade_note: Optional note to include
+
+        Returns:
+            Dictionary containing the request details and success flag.
+        """
+        result = {"team_key": team_key, "transaction_key": transaction_key}
+        return self._perform_write(
+            f"Rejecting trade {transaction_key} for team {team_key}",
+            result,
+            lambda: yfa.Team(self._oauth, team_key).reject_trade(transaction_key, trade_note)
+        )
 

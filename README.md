@@ -9,6 +9,7 @@ A Model Context Protocol (MCP) server that provides access to Yahoo Fantasy Spor
 - Access matchup data and scoring details
 - Get roster information for teams
 - Search for players and free agents
+- Manage your team: set lineups, add/drop players, submit waiver claims, and propose or respond to trades
 
 ## Installation
 
@@ -252,7 +253,7 @@ Note: When run standalone without an MCP client, the server will wait for JSON-R
 
 ## Available Tools
 
-The MCP server exposes the following tools for read-only access to Yahoo Fantasy data:
+The MCP server exposes the following tools for reading Yahoo Fantasy data and managing your team:
 
 ### League Information
 - `get_team_key` - Get the team key for the logged in user's team in a league
@@ -284,7 +285,20 @@ The MCP server exposes the following tools for read-only access to Yahoo Fantasy
 ### Transactions
 - `get_transactions` - Get league transactions (adds, drops, trades, commish moves)
 
-**Note:** This server provides read-only access. No write operations (roster changes, trades, lineup modifications) are implemented for safety.
+### Write Operations
+These tools modify your team on Yahoo! Fantasy and cannot be undone through the API. They carry MCP tool annotations (`readOnlyHint: false`, plus `destructiveHint` where applicable); all read tools are annotated `readOnlyHint: true`.
+
+- `change_positions` - Change lineup positions for one or more players (by `date` for daily leagues, `week` for NFL)
+- `add_player` - Add a free agent
+- `drop_player` - Drop a player
+- `add_and_drop_players` - Add a free agent and drop a player in one transaction
+- `claim_player` - Submit a waiver claim, with an optional FAAB bid
+- `claim_and_drop_players` - Submit a waiver claim and drop a player if it succeeds, with an optional FAAB bid
+- `propose_trade` - Propose a trade to another team
+- `accept_trade` - Accept a proposed trade (transaction keys come from `get_team_proposed_trades`)
+- `reject_trade` - Reject a proposed trade
+
+Write tools return the request details with `success: true`, or `success: false` and Yahoo's error message.
 
 ## Development
 

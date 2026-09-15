@@ -16,6 +16,7 @@ from mcp.types import (
     Resource,
     TextContent,
     Tool,
+    ToolAnnotations,
 )
 
 from . import __version__
@@ -56,6 +57,249 @@ def _list_league_resources(league_id: str | None = None) -> list[Resource]:
     return [_build_league_resource(league_id)]
 
 
+_READ_ONLY_ANNOTATIONS = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+
+_WRITE_WARNING = "This modifies the team on Yahoo! Fantasy."
+
+_TEAM_KEY_PROPERTY = {
+    "type": "string",
+    "description": "The team key to modify (use get_team_key to find the user's team)"
+}
+
+_TRADE_NOTE_PROPERTY = {
+    "type": "string",
+    "description": "Optional note to include with the trade"
+}
+
+
+def _write_annotations(destructive: bool, idempotent: bool = False) -> ToolAnnotations:
+    """Build annotations for a tool that modifies league state."""
+    return ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=destructive,
+        idempotent_hint=idempotent,
+        open_world_hint=True,
+    )
+
+
+_WRITE_TOOLS = [
+    Tool(
+        name="change_positions",
+        description=(
+            "Change the lineup positions of one or more players on a team, e.g. "
+            "move a player to the bench or into a starting slot. " + _WRITE_WARNING
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "players": {
+                    "type": "array",
+                    "description": "Players to move and their new positions",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "player_id": {
+                                "type": "integer",
+                                "description": "Yahoo! player ID"
+                            },
+                            "selected_position": {
+                                "type": "string",
+                                "description": "New position, e.g. 'BN', 'QB', 'C', 'IL'"
+                            }
+                        },
+                        "required": ["player_id", "selected_position"]
+                    },
+                    "minItems": 1
+                },
+                "date": {
+                    "type": "string",
+                    "description": "Day the change takes effect (YYYY-MM-DD). Use for daily leagues (MLB, NBA, NHL)."
+                },
+                "week": {
+                    "type": "integer",
+                    "description": (
+                        "Week the change takes effect. Use for weekly leagues (NFL). "
+                        "Specify exactly one of date or week."
+                    )
+                }
+            },
+            "required": ["team_key", "players"]
+        },
+        annotations=_write_annotations(destructive=False, idempotent=True),
+    ),
+    Tool(
+        name="add_player",
+        description="Add a free agent to a team. " + _WRITE_WARNING,
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to add"
+                }
+            },
+            "required": ["team_key", "player_id"]
+        },
+        annotations=_write_annotations(destructive=False),
+    ),
+    Tool(
+        name="drop_player",
+        description="Drop a player from a team. " + _WRITE_WARNING,
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to drop"
+                }
+            },
+            "required": ["team_key", "player_id"]
+        },
+        annotations=_write_annotations(destructive=True),
+    ),
+    Tool(
+        name="add_and_drop_players",
+        description="Add a free agent and drop a player in a single transaction. " + _WRITE_WARNING,
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "add_player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to add"
+                },
+                "drop_player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to drop"
+                }
+            },
+            "required": ["team_key", "add_player_id", "drop_player_id"]
+        },
+        annotations=_write_annotations(destructive=True),
+    ),
+    Tool(
+        name="claim_player",
+        description="Submit a waiver claim for a player, optionally with a FAAB bid. " + _WRITE_WARNING,
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to claim"
+                },
+                "faab": {
+                    "type": "integer",
+                    "description": "FAAB dollars to bid (optional, only for FAAB leagues)"
+                }
+            },
+            "required": ["team_key", "player_id"]
+        },
+        annotations=_write_annotations(destructive=False),
+    ),
+    Tool(
+        name="claim_and_drop_players",
+        description=(
+            "Submit a waiver claim for a player and drop another player if the "
+            "claim succeeds, optionally with a FAAB bid. " + _WRITE_WARNING
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "add_player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to claim"
+                },
+                "drop_player_id": {
+                    "type": "integer",
+                    "description": "Yahoo! player ID of the player to drop"
+                },
+                "faab": {
+                    "type": "integer",
+                    "description": "FAAB dollars to bid (optional, only for FAAB leagues)"
+                }
+            },
+            "required": ["team_key", "add_player_id", "drop_player_id"]
+        },
+        annotations=_write_annotations(destructive=True),
+    ),
+    Tool(
+        name="propose_trade",
+        description="Propose a trade to another team. " + _WRITE_WARNING,
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": {
+                    "type": "string",
+                    "description": "The team key proposing the trade"
+                },
+                "tradee_team_key": {
+                    "type": "string",
+                    "description": "The team key of the team receiving the proposal"
+                },
+                "your_player_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Yahoo! player IDs the proposing team sends"
+                },
+                "their_player_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Yahoo! player IDs requested from the other team"
+                },
+                "trade_note": _TRADE_NOTE_PROPERTY
+            },
+            "required": ["team_key", "tradee_team_key", "your_player_ids", "their_player_ids"]
+        },
+        annotations=_write_annotations(destructive=False),
+    ),
+    Tool(
+        name="accept_trade",
+        description=(
+            "Accept a trade proposed to a team (transaction keys come from "
+            "get_team_proposed_trades). " + _WRITE_WARNING
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "transaction_key": {
+                    "type": "string",
+                    "description": "Key of the proposed trade, e.g. '423.l.123456.pt.1'"
+                },
+                "trade_note": _TRADE_NOTE_PROPERTY
+            },
+            "required": ["team_key", "transaction_key"]
+        },
+        annotations=_write_annotations(destructive=True),
+    ),
+    Tool(
+        name="reject_trade",
+        description=(
+            "Reject a trade proposed to a team (transaction keys come from "
+            "get_team_proposed_trades). " + _WRITE_WARNING
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "team_key": _TEAM_KEY_PROPERTY,
+                "transaction_key": {
+                    "type": "string",
+                    "description": "Key of the proposed trade, e.g. '423.l.123456.pt.1'"
+                },
+                "trade_note": _TRADE_NOTE_PROPERTY
+            },
+            "required": ["team_key", "transaction_key"]
+        },
+        annotations=_write_annotations(destructive=True),
+    ),
+]
+
+
 def create_server(
     client_id: Optional[str] = None,
     client_secret: Optional[str] = None,
@@ -87,7 +331,7 @@ def create_server(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
     ) -> ListToolsResult:
         """List available tools."""
-        return ListToolsResult(tools=[
+        read_tools = [
             Tool(
                 name="get_team_key",
                 description="Get the team key for the logged in user's team in a league",
@@ -423,7 +667,12 @@ def create_server(
                     "required": ["league_id"]
                 }
             ),
-        ])
+        ]
+        read_tools = [
+            tool.model_copy(update={"annotations": _READ_ONLY_ANNOTATIONS})
+            for tool in read_tools
+        ]
+        return ListToolsResult(tools=read_tools + _WRITE_TOOLS)
 
     async def call_tool(
         ctx: ServerRequestContext, params: CallToolRequestParams
@@ -529,6 +778,62 @@ def create_server(
                 )
             elif name == "get_waivers":
                 result = await tools.get_waivers(arguments["league_id"])
+            elif name == "change_positions":
+                result = await tools.change_positions(
+                    arguments["team_key"],
+                    arguments["players"],
+                    arguments.get("date"),
+                    arguments.get("week")
+                )
+            elif name == "add_player":
+                result = await tools.add_player(
+                    arguments["team_key"],
+                    int(arguments["player_id"])
+                )
+            elif name == "drop_player":
+                result = await tools.drop_player(
+                    arguments["team_key"],
+                    int(arguments["player_id"])
+                )
+            elif name == "add_and_drop_players":
+                result = await tools.add_and_drop_players(
+                    arguments["team_key"],
+                    int(arguments["add_player_id"]),
+                    int(arguments["drop_player_id"])
+                )
+            elif name == "claim_player":
+                result = await tools.claim_player(
+                    arguments["team_key"],
+                    int(arguments["player_id"]),
+                    arguments.get("faab")
+                )
+            elif name == "claim_and_drop_players":
+                result = await tools.claim_and_drop_players(
+                    arguments["team_key"],
+                    int(arguments["add_player_id"]),
+                    int(arguments["drop_player_id"]),
+                    arguments.get("faab")
+                )
+            elif name == "propose_trade":
+                result = await tools.propose_trade(
+                    arguments["team_key"],
+                    arguments["tradee_team_key"],
+                    [int(p) for p in arguments["your_player_ids"]],
+                    [int(p) for p in arguments["their_player_ids"]],
+                    arguments.get("trade_note", "")
+                )
+            elif name == "accept_trade":
+                result = await tools.accept_trade(
+                    arguments["team_key"],
+                    arguments["transaction_key"],
+                    arguments.get("trade_note", "")
+                )
+            elif name == "reject_trade":
+                result = await tools.reject_trade(
+                    arguments["team_key"],
+                    arguments["transaction_key"],
+                    arguments.get("trade_note", "")
+                )
             else:
                 raise ValueError(f"Unknown tool: {name}")
 
